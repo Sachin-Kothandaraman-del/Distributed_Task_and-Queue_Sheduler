@@ -68,6 +68,8 @@ implemented as server-side **Lua scripts** in [`dtq/lua.py`](dtq/lua.py).
 ## Quickstart (Docker — full stack)
 
 ```bash
+git clone https://github.com/Sachin-Kothandaraman-del/Distributed_Task_and-Queue_Sheduler.git
+cd Distributed_Task_and-Queue_Sheduler
 docker compose up --build
 ```
 
