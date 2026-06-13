@@ -1,0 +1,11 @@
+# Normalize line endings: store everything as LF in the repo so the Linux
+# Docker image and cross-platform clones get consistent text files.
+* text=auto eol=lf
+
+# PowerShell scripts check out with CRLF on Windows.
+*.ps1 text eol=crlf
+
+# Treat these as binary (never line-ending-converted).
+*.png binary
+*.jpg binary
+*.ico binary

@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DTQ — Distributed Task Queue</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --panel: #161b24;
+    --panel-2: #1c2330;
+    --border: #2a3343;
+    --text: #dbe2ee;
+    --muted: #8593a8;
+    --accent: #4f8ef7;
+    --green: #3fb96f;
+    --orange: #e8a13c;
+    --red: #e05252;
+    --purple: #9d7bef;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 22px; border-bottom: 1px solid var(--border);
+    background: var(--panel); position: sticky; top: 0; z-index: 5;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header h1 span { color: var(--accent); }
+  .health { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.bad { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .spacer { flex: 1; }
+  header a { color: var(--muted); text-decoration: none; font-size: 12px; }
+  header a:hover { color: var(--text); }
+  select, input, button, textarea {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 9px; font-size: 13px; font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+  button.small { padding: 3px 8px; font-size: 12px; }
+
+  .wrap { max-width: 1480px; margin: 0 auto; padding: 18px 22px 60px; }
+
+  .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; position: relative; overflow: hidden;
+  }
+  .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+  .card .value { font-size: 30px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .card canvas { position: absolute; right: 8px; bottom: 8px; opacity: .9; }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+  .panel > h2 {
+    margin: 0; padding: 11px 16px; font-size: 13px; font-weight: 600;
+    border-bottom: 1px solid var(--border); color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel > h2 .count { color: var(--muted); font-weight: 400; }
+  .panel .body { padding: 12px 16px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px;
+       text-transform: uppercase; letter-spacing: .6px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 7px 10px; border-bottom: 1px solid #1f2735; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr.clickable { cursor: pointer; }
+  tbody tr.clickable:hover { background: var(--panel-2); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .muted { color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .badge {
+    display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px;
+    font-weight: 600; letter-spacing: .3px;
+  }
+  .b-pending   { background: #2b3445; color: #9fb6d8; }
+  .b-scheduled { background: #2d2747; color: #b9a4f5; }
+  .b-running   { background: #1d3a5e; color: #6fb1ff; }
+  .b-success   { background: #173627; color: #57d68a; }
+  .b-failed    { background: #3e2d17; color: #ecb259; }
+  .b-dead      { background: #401f1f; color: #f07b7b; }
+  .b-cancelled { background: #2a2f38; color: #98a3b3; }
+
+  form .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  form .row > * { flex: 1; min-width: 0; }
+  form label { display: block; font-size: 11px; color: var(--muted); margin: 0 0 3px 1px;
+               text-transform: uppercase; letter-spacing: .6px; }
+  form input, form textarea, form select { width: 100%; }
+  textarea { font-family: var(--mono); resize: vertical; min-height: 34px; }
+  .form-msg { font-size: 12px; margin-top: 6px; min-height: 16px; }
+  .form-msg.ok { color: var(--green); }
+  .form-msg.err { color: var(--red); }
+
+  .empty { color: var(--muted); text-align: center; padding: 18px 0; font-size: 13px; }
+
+  /* task detail modal */
+  #overlay {
+    display: none; position: fixed; inset: 0; background: rgba(5,8,14,.7); z-index: 20;
+    align-items: flex-start; justify-content: center; padding: 7vh 16px;
+  }
+  #overlay.open { display: flex; }
+  #detail {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    width: min(760px, 100%); max-height: 84vh; overflow: auto; padding: 18px 20px;
+  }
+  #detail h3 { margin: 0 0 4px; font-size: 15px; display: flex; align-items: center; gap: 10px; }
+  #detail pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; font-size: 12px; overflow: auto; font-family: var(--mono); margin: 8px 0 0;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 4px 12px; margin-top: 10px; font-size: 13px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+
+  @media (max-width: 1080px) {
+    .grid { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚙ <span>DTQ</span> — Distributed Task Queue</h1>
+  <div class="health"><div id="healthDot" class="dot"></div><span id="healthText">connecting…</span></div>
+  <div class="spacer"></div>
+  <label class="muted" style="font-size:12px">refresh
+    <select id="refreshSel">
+      <option value="1000">1s</option>
+      <option value="2000" selected>2s</option>
+      <option value="5000">5s</option>
+      <option value="0">off</option>
+    </select>
+  </label>
+  <a href="/docs" target="_blank">API docs ↗</a>
+  <a href="/metrics" target="_blank">metrics ↗</a>
+</header>
+
+<div class="wrap">
+  <div class="cards">
+    <div class="card"><div class="label">Ready</div><div class="value num" id="stReady">–</div>
+      <canvas id="spark" width="120" height="36"></canvas></div>
+    <div class="card"><div class="label">Delayed</div><div class="value num" id="stDelayed">–</div></div>
+    <div class="card"><div class="label">In-flight</div><div class="value num" id="stInflight">–</div></div>
+    <div class="card"><div class="label">Dead-letter</div><div class="value num" id="stDlq">–</div></div>
+    <div class="card"><div class="label">Workers alive</div><div class="value num" id="stWorkers">–</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="col">
+      <div class="panel">
+        <h2>Recent tasks <span class="count" id="recentCount"></span></h2>
+        <table id="recentTable">
+          <thead><tr>
+            <th>id</th><th>task</th><th>status</th><th>prio</th><th>attempts</th><th>age</th><th>took</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="empty" id="recentEmpty" style="display:none">no tasks yet — submit one →</div>
+      </div>
+
+      <div class="panel">
+        <h2>Dead-letter queue <span class="count" id="dlqCount"></span></h2>
+        <table id="dlqTable">
+          <thead><tr><th>id</th><th>task</th><th>attempts</th><th>error</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="empty" id="dlqEmpty" style="display:none">empty — nothing has exhausted its retries</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel">
+        <h2>Submit a task</h2>
+        <div class="body">
+          <form id="submitForm">
+            <div class="row">
+              <div style="flex:2">
+                <label>task</label>
+                <input id="fName" list="taskNames" placeholder="e.g. add" required>
+                <datalist id="taskNames"></datalist>
+              </div>
+              <div>
+                <label>priority</label>
+                <select id="fPriority">
+                  <option value="0">critical (0)</option>
+                  <option value="20">high (20)</option>
+                  <option value="100" selected>normal (100)</option>
+                  <option value="200">low (200)</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div><label>args — JSON array</label><textarea id="fArgs" placeholder="[2, 3]"></textarea></div>
+            </div>
+            <div class="row">
+              <div><label>kwargs — JSON object</label><textarea id="fKwargs" placeholder='{"to": "a@example.com"}'></textarea></div>
+            </div>
+            <div class="row">
+              <div><label>delay (s)</label><input id="fDelay" type="number" min="0" step="any" placeholder="0"></div>
+              <div><label>max retries</label><input id="fRetries" type="number" min="0" placeholder="handler default"></div>
+              <div><label>timeout (s)</label><input id="fTimeout" type="number" min="0" step="any" placeholder="default"></div>
+            </div>
+            <button class="primary" type="submit" style="width:100%">Enqueue</button>
+            <div class="form-msg" id="submitMsg"></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Schedules <span class="count" id="schedCount"></span></h2>
+        <table id="schedTable">
+          <thead><tr><th>name</th><th>task</th><th>when</th><th>next run</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="empty" id="schedEmpty" style="display:none">no periodic schedules</div>
+        <div class="body" style="border-top:1px solid var(--border)">
+          <form id="schedForm">
+            <div class="row">
+              <div><label>name</label><input id="sName" placeholder="nightly-report" required></div>
+              <div><label>task</label><input id="sTask" list="taskNames" placeholder="heartbeat" required></div>
+            </div>
+            <div class="row">
+              <div><label>cron (UTC)</label><input id="sCron" placeholder="*/5 * * * *"></div>
+              <div><label>or interval (s)</label><input id="sInterval" type="number" min="0" step="any" placeholder="60"></div>
+            </div>
+            <button type="submit" style="width:100%">Create schedule</button>
+            <div class="form-msg" id="schedMsg"></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Workers <span class="count" id="workerCount"></span></h2>
+        <table id="workerTable">
+          <thead><tr><th>worker</th><th>conc</th><th>busy</th><th>beat</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="empty" id="workerEmpty" style="display:none">no workers registered</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="overlay">
+  <div id="detail"></div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let msg = res.status + " " + res.statusText;
+    try { const j = await res.json(); if (j.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch {}
+    throw new Error(msg);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+const fmtAge = (epoch) => {
+  if (!epoch) return "–";
+  let s = Math.max(0, Date.now() / 1000 - epoch);
+  if (s < 60) return s.toFixed(0) + "s";
+  if (s < 3600) return (s / 60).toFixed(0) + "m";
+  if (s < 86400) return (s / 3600).toFixed(1) + "h";
+  return (s / 86400).toFixed(1) + "d";
+};
+const fmtDur = (t) => {
+  if (t == null) return "–";
+  if (t < 0.001) return "<1ms";
+  if (t < 1) return (t * 1000).toFixed(0) + "ms";
+  if (t < 60) return t.toFixed(2) + "s";
+  return (t / 60).toFixed(1) + "m";
+};
+const fmtWhen = (epoch) => epoch ? new Date(epoch * 1000).toLocaleString() : "–";
+const badge = (st) => `<span class="badge b-${esc(st)}">${esc(st)}</span>`;
+const shortId = (id) => `<span class="mono" title="${esc(id)}">${esc(id.slice(0, 8))}</span>`;
+
+/* ---------------- sparkline for ready-depth history ---------------- */
+const history = [];
+function drawSpark() {
+  const c = $("spark"), ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, c.width, c.height);
+  if (history.length < 2) return;
+  const max = Math.max(...history, 1);
+  ctx.beginPath();
+  history.forEach((v, i) => {
+    const x = (i / (history.length - 1)) * (c.width - 2) + 1;
+    const y = c.height - 2 - (v / max) * (c.height - 6);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.strokeStyle = "#4f8ef7"; ctx.lineWidth = 1.5; ctx.stroke();
+}
+
+/* ---------------- panels ---------------- */
+let taskCache = {};
+
+async function refreshStats() {
+  const s = await api("/stats");
+  $("stReady").textContent = s.queues.ready.toLocaleString();
+  $("stDelayed").textContent = s.queues.delayed.toLocaleString();
+  $("stInflight").textContent = s.queues.inflight.toLocaleString();
+  $("stDlq").textContent = s.queues.dlq.toLocaleString();
+  $("stWorkers").textContent = `${s.workers.alive}/${s.workers.total}`;
+  history.push(s.queues.ready);
+  if (history.length > 60) history.shift();
+  drawSpark();
+  const dl = $("taskNames");
+  if (dl.children.length !== s.registered_tasks.length) {
+    dl.innerHTML = s.registered_tasks.map((n) => `<option value="${esc(n)}">`).join("");
+  }
+}
+
+async function refreshRecent() {
+  const tasks = await api("/tasks/recent?limit=50");
+  taskCache = {};
+  const tb = $("recentTable").querySelector("tbody");
+  $("recentEmpty").style.display = tasks.length ? "none" : "";
+  $("recentCount").textContent = tasks.length ? `(${tasks.length})` : "";
+  tb.innerHTML = tasks.map((t) => {
+    taskCache[t.id] = t;
+    const took = t.finished_at && t.started_at ? fmtDur(t.finished_at - t.started_at) : "–";
+    const cancellable = t.status === "pending" || t.status === "scheduled";
+    return `<tr class="clickable" data-id="${esc(t.id)}">
+      <td>${shortId(t.id)}</td>
+      <td class="mono">${esc(t.name)}</td>
+      <td>${badge(t.status)}</td>
+      <td class="num">${t.priority}</td>
+      <td class="num">${t.attempts}</td>
+      <td class="muted num">${fmtAge(t.enqueued_at || t.created_at)}</td>
+      <td class="muted num">${took}</td>
+      <td>${cancellable ? `<button class="small danger" data-cancel="${esc(t.id)}">cancel</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function refreshDlq() {
+  const tasks = await api("/dlq?limit=50");
+  const tb = $("dlqTable").querySelector("tbody");
+  $("dlqEmpty").style.display = tasks.length ? "none" : "";
+  $("dlqCount").textContent = tasks.length ? `(${tasks.length})` : "";
+  tb.innerHTML = tasks.map((t) => {
+    taskCache[t.id] = t;
+    return `<tr class="clickable" data-id="${esc(t.id)}">
+      <td>${shortId(t.id)}</td>
+      <td class="mono">${esc(t.name)}</td>
+      <td class="num">${t.attempts}</td>
+      <td class="muted" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${esc(t.error || "")}">${esc(t.error || "–")}</td>
+      <td><button class="small" data-requeue="${esc(t.id)}">requeue</button></td>
+    </tr>`;
+  }).join("");
+}
+
+async function refreshSchedules() {
+  const scheds = await api("/schedules");
+  const tb = $("schedTable").querySelector("tbody");
+  $("schedEmpty").style.display = scheds.length ? "none" : "";
+  $("schedCount").textContent = scheds.length ? `(${scheds.length})` : "";
+  tb.innerHTML = scheds.map((s) => `<tr>
+      <td class="mono">${esc(s.name)}</td>
+      <td class="mono">${esc(s.task)}</td>
+      <td class="mono muted">${s.cron ? esc(s.cron) : "every " + s.interval + "s"}</td>
+      <td class="muted num" title="${fmtWhen(s.next_run)}">${s.next_run ? "in " + fmtAgeFuture(s.next_run) : "–"}</td>
+      <td><button class="small danger" data-delsched="${esc(s.name)}">delete</button></td>
+    </tr>`).join("");
+}
+const fmtAgeFuture = (epoch) => {
+  let s = Math.max(0, epoch - Date.now() / 1000);
+  if (s < 60) return s.toFixed(0) + "s";
+  if (s < 3600) return (s / 60).toFixed(1) + "m";
+  return (s / 3600).toFixed(1) + "h";
+};
+
+async function refreshWorkers() {
+  const ws = await api("/workers");
+  const tb = $("workerTable").querySelector("tbody");
+  $("workerEmpty").style.display = ws.length ? "none" : "";
+  $("workerCount").textContent = ws.length ? `(${ws.length})` : "";
+  tb.innerHTML = ws.map((w) => `<tr>
+      <td class="mono" title="${esc(w.id)}">${esc(w.id.length > 22 ? w.id.slice(0, 22) + "…" : w.id)}</td>
+      <td class="num">${w.concurrency ?? "–"}</td>
+      <td class="num">${w.inflight ?? "–"}</td>
+      <td class="muted num">${fmtAge(w.ts)}</td>
+      <td>${w.alive ? '<span class="badge b-success">alive</span>' : '<span class="badge b-dead">lost</span>'}</td>
+    </tr>`).join("");
+}
+
+/* ---------------- detail modal ---------------- */
+async function openDetail(id) {
+  let t = taskCache[id];
+  try { t = await api("/tasks/" + id); } catch {}
+  if (!t) return;
+  const rows = [
+    ["id", `<span class="mono">${esc(t.id)}</span>`],
+    ["priority", t.priority], ["attempts", t.attempts],
+    ["max retries", t.max_retries == null ? "handler default" : t.max_retries],
+    ["created", fmtWhen(t.created_at)], ["enqueued", fmtWhen(t.enqueued_at)],
+    ["eta", fmtWhen(t.eta)], ["started", fmtWhen(t.started_at)], ["finished", fmtWhen(t.finished_at)],
+    ["duration", t.finished_at && t.started_at ? fmtDur(t.finished_at - t.started_at) : "–"],
+    ["schedule", t.schedule_name || "–"],
+  ];
+  let html = `<h3><span class="mono">${esc(t.name)}</span> ${badge(t.status)}</h3>
+    <div class="kv">${rows.map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join("")}</div>`;
+  if (t.args && t.args.length) html += `<pre>args: ${esc(JSON.stringify(t.args, null, 2))}</pre>`;
+  if (t.kwargs && Object.keys(t.kwargs).length) html += `<pre>kwargs: ${esc(JSON.stringify(t.kwargs, null, 2))}</pre>`;
+  if (t.result !== null && t.result !== undefined) html += `<pre>result: ${esc(JSON.stringify(t.result, null, 2))}</pre>`;
+  if (t.error) html += `<pre style="color:#f07b7b">${esc(t.error)}${t.traceback ? "\n\n" + esc(t.traceback) : ""}</pre>`;
+  html += `<div style="margin-top:12px;text-align:right"><button onclick="closeDetail()">close</button></div>`;
+  $("detail").innerHTML = html;
+  $("overlay").classList.add("open");
+}
+function closeDetail() { $("overlay").classList.remove("open"); }
+$("overlay").addEventListener("click", (e) => { if (e.target.id === "overlay") closeDetail(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDetail(); });
+
+/* ---------------- actions ---------------- */
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button");
+  if (btn?.dataset.cancel) {
+    e.stopPropagation();
+    try { await api("/tasks/" + btn.dataset.cancel, { method: "DELETE" }); } catch (err) { alert(err.message); }
+    refreshAll(); return;
+  }
+  if (btn?.dataset.requeue) {
+    e.stopPropagation();
+    try { await api(`/dlq/${btn.dataset.requeue}/requeue`, { method: "POST" }); } catch (err) { alert(err.message); }
+    refreshAll(); return;
+  }
+  if (btn?.dataset.delsched) {
+    e.stopPropagation();
+    try { await api("/schedules/" + encodeURIComponent(btn.dataset.delsched), { method: "DELETE" }); } catch (err) { alert(err.message); }
+    refreshAll(); return;
+  }
+  const row = e.target.closest("tr.clickable");
+  if (row?.dataset.id) openDetail(row.dataset.id);
+});
+
+function parseJsonField(el, fallback, what) {
+  const raw = el.value.trim();
+  if (!raw) return fallback;
+  const v = JSON.parse(raw);
+  if (fallback instanceof Array && !(v instanceof Array)) throw new Error(what + " must be a JSON array");
+  if (!(fallback instanceof Array) && (typeof v !== "object" || v instanceof Array)) throw new Error(what + " must be a JSON object");
+  return v;
+}
+
+$("submitForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = $("submitMsg");
+  msg.className = "form-msg";
+  try {
+    const body = {
+      name: $("fName").value.trim(),
+      args: parseJsonField($("fArgs"), [], "args"),
+      kwargs: parseJsonField($("fKwargs"), {}, "kwargs"),
+      priority: parseInt($("fPriority").value, 10),
+    };
+    if ($("fDelay").value) body.delay = parseFloat($("fDelay").value);
+    if ($("fRetries").value !== "") body.max_retries = parseInt($("fRetries").value, 10);
+    if ($("fTimeout").value) body.timeout = parseFloat($("fTimeout").value);
+    const out = await api("/tasks", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    msg.textContent = `enqueued ${out.id.slice(0, 8)}… (${out.status})`;
+    msg.classList.add("ok");
+    refreshAll();
+  } catch (err) {
+    msg.textContent = err.message; msg.classList.add("err");
+  }
+});
+
+$("schedForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = $("schedMsg");
+  msg.className = "form-msg";
+  try {
+    const body = { name: $("sName").value.trim(), task: $("sTask").value.trim() };
+    if ($("sCron").value.trim()) body.cron = $("sCron").value.trim();
+    if ($("sInterval").value) body.interval = parseFloat($("sInterval").value);
+    if (!body.cron && !body.interval) throw new Error("provide a cron expression or an interval");
+    await api("/schedules", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    msg.textContent = `schedule '${body.name}' created`; msg.classList.add("ok");
+    $("schedForm").reset();
+    refreshAll();
+  } catch (err) {
+    msg.textContent = err.message; msg.classList.add("err");
+  }
+});
+
+/* ---------------- refresh loop ---------------- */
+async function refreshAll() {
+  try {
+    await Promise.all([refreshStats(), refreshRecent(), refreshDlq(), refreshSchedules(), refreshWorkers()]);
+    $("healthDot").className = "dot ok"; $("healthText").textContent = "connected";
+  } catch (err) {
+    $("healthDot").className = "dot bad"; $("healthText").textContent = "unreachable";
+  }
+}
+let timer = null;
+function applyInterval() {
+  if (timer) clearInterval(timer);
+  const n = parseInt($("refreshSel").value, 10);
+  if (n > 0) timer = setInterval(refreshAll, n);
+}
+$("refreshSel").addEventListener("change", applyInterval);
+refreshAll();
+applyInterval();
+</script>
+</body>
+</html>

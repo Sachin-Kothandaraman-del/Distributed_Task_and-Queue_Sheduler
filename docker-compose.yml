@@ -1,0 +1,88 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    command: ["python", "-m", "dtq", "api"]
+    environment:
+      DTQ_REDIS_URL: redis://redis:6379/0
+      DTQ_IMPORT: dtq.tasks
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    command: ["python", "-m", "dtq", "scheduler"]
+    environment:
+      DTQ_REDIS_URL: redis://redis:6379/0
+      DTQ_IMPORT: dtq.tasks
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-1:
+    build: .
+    command: ["python", "-m", "dtq", "worker"]
+    environment:
+      DTQ_REDIS_URL: redis://redis:6379/0
+      DTQ_IMPORT: dtq.tasks
+      DTQ_WORKER_CONCURRENCY: "8"
+      DTQ_WORKER_MAX_CONCURRENCY: "64"
+      DTQ_WORKER_METRICS_PORT: "9100"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-2:
+    build: .
+    command: ["python", "-m", "dtq", "worker"]
+    environment:
+      DTQ_REDIS_URL: redis://redis:6379/0
+      DTQ_IMPORT: dtq.tasks
+      DTQ_WORKER_CONCURRENCY: "8"
+      DTQ_WORKER_MAX_CONCURRENCY: "64"
+      DTQ_WORKER_METRICS_PORT: "9100"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  redis-data:

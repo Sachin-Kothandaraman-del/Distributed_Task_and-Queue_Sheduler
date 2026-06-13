@@ -1,0 +1,74 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "schemaVersion": 39,
+  "title": "Distributed Task Queue",
+  "tags": ["dtq"],
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "5s",
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Queue depth",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "max by (queue) (dtq_queue_depth)", "legendFormat": "{{queue}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task throughput (completed/sec)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum by (status) (rate(dtq_tasks_completed_total[1m]))", "legendFormat": "{{status}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Task duration p50/p95/p99 (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(dtq_task_duration_seconds_bucket[5m])))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(dtq_task_duration_seconds_bucket[5m])))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(dtq_task_duration_seconds_bucket[5m])))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue latency p95 (enqueue -> start, s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(dtq_task_queue_latency_seconds_bucket[5m])))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Workers alive",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 16 },
+      "targets": [ { "expr": "max(dtq_workers_active)" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Total worker concurrency",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 16 },
+      "targets": [ { "expr": "sum(dtq_worker_concurrency)" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Dead-letter queue size",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 16 },
+      "targets": [ { "expr": "max(dtq_queue_depth{queue=\"dlq\"})" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Retries & dead-letters /sec",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 16 },
+      "targets": [
+        { "expr": "sum(rate(dtq_tasks_retried_total[1m]))", "legendFormat": "retried" },
+        { "expr": "sum(rate(dtq_tasks_dead_total[1m]))", "legendFormat": "dead" }
+      ]
+    }
+  ]
+}

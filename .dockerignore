@@ -1,0 +1,15 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.pytest_cache/
+.mypy_cache/
+tests/
+docs/
+*.md
+!README.md
+grafana-data/
+prometheus-data/
